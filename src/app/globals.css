@@ -1,0 +1,222 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif-display: var(--font-playfair), Georgia, serif;
+  --font-cormorant: var(--font-cormorant), Georgia, serif;
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-caveat: var(--font-caveat), cursive;
+  --font-dancing: var(--font-dancing), cursive;
+  --font-sacramento: var(--font-sacramento), cursive;
+  --font-homemade: var(--font-homemade), cursive;
+  --font-shadows: var(--font-shadows), cursive;
+  --font-patrick: var(--font-patrick), cursive;
+
+  --color-paper-cream: #FFFDF9;
+  --color-paper-blush: #FFF0F5;
+  --color-paper-celestial: #F0F5FA;
+  --color-paper-parchment: #F9F4E8;
+  --color-paper-midnight: #1C161E;
+
+  --color-brand-pink: #F8E2EB;
+  --color-brand-rose: #E8A0B8;
+  --color-brand-deep-rose: #C97D91;
+  --color-brand-charcoal: #2B2320;
+  --color-brand-gold: #D4AF37;
+  --color-brand-wax-red: #8B1E2F;
+}
+
+:root {
+  --background: #FFFDF9;
+  --foreground: #2B2320;
+}
+
+/* Custom font utility classes */
+.font-display {
+  font-family: var(--font-playfair), Georgia, serif;
+}
+
+.font-cormorant-serif {
+  font-family: var(--font-cormorant), Georgia, serif;
+}
+
+.font-ui {
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+}
+
+.font-letter-caveat {
+  font-family: var(--font-caveat), cursive;
+}
+
+.font-letter-dancing-script {
+  font-family: var(--font-dancing), cursive;
+}
+
+.font-letter-sacramento {
+  font-family: var(--font-sacramento), cursive;
+}
+
+.font-letter-homemade-apple {
+  font-family: var(--font-homemade), cursive;
+}
+
+.font-letter-shadows-into-light {
+  font-family: var(--font-shadows), cursive;
+}
+
+.font-letter-patrick-hand {
+  font-family: var(--font-patrick), cursive;
+}
+
+/* Paper card styling */
+.paper-card {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow:
+    0 2px 4px rgba(43, 35, 32, 0.04),
+    0 12px 28px -4px rgba(201, 125, 145, 0.12),
+    0 24px 48px -12px rgba(43, 35, 32, 0.08);
+}
+
+.paper-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(0, 0, 0, 0.015) 1px, transparent 0);
+  background-size: 8px 8px;
+  opacity: 0.6;
+}
+
+/* Paper styles */
+.paper-style-cream {
+  background-color: #FFFDF9;
+  color: #2B2320;
+  border: 1px solid rgba(232, 160, 184, 0.3);
+}
+
+.paper-style-blush {
+  background: linear-gradient(135deg, #FFF6F9 0%, #FCEAF1 100%);
+  color: #351C26;
+  border: 1px solid rgba(232, 160, 184, 0.4);
+}
+
+.paper-style-celestial {
+  background: linear-gradient(135deg, #F8FBFE 0%, #EDF3F9 100%);
+  color: #1E293B;
+  border: 1px solid rgba(186, 215, 242, 0.4);
+}
+
+.paper-style-parchment {
+  background: linear-gradient(145deg, #FCF8EE 0%, #F5ECDA 100%);
+  color: #34281B;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+}
+
+.paper-style-midnight {
+  background: linear-gradient(145deg, #1A131A 0%, #110B12 100%);
+  color: #F8E2EB;
+  border: 1px solid rgba(232, 160, 184, 0.2);
+}
+
+/* Polaroid effect */
+.polaroid-frame {
+  background: #FFFFFF;
+  padding: 10px 10px 24px 10px;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: transform 0.3s ease;
+}
+
+.polaroid-frame:hover {
+  transform: scale(1.02) rotate(0deg) !important;
+}
+
+.washi-tape {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
+  width: 70px;
+  height: 24px;
+  background: rgba(248, 226, 235, 0.75);
+  backdrop-filter: blur(2px);
+  border-left: 2px dashed rgba(232, 160, 184, 0.6);
+  border-right: 2px dashed rgba(232, 160, 184, 0.6);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  pointer-events: none;
+}
+
+/* Wax seal badges */
+.wax-seal-crimson {
+  background: radial-gradient(circle at 35% 35%, #B3263E, #7A1222);
+  box-shadow:
+    0 4px 10px rgba(122, 18, 34, 0.35),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+
+.wax-seal-rose-gold {
+  background: radial-gradient(circle at 35% 35%, #E8A0B8, #A35870);
+  box-shadow:
+    0 4px 10px rgba(163, 88, 112, 0.35),
+    inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+
+.wax-seal-royal-navy {
+  background: radial-gradient(circle at 35% 35%, #2B4C7E, #14284A);
+  box-shadow:
+    0 4px 10px rgba(20, 40, 74, 0.35),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+
+.wax-seal-emerald {
+  background: radial-gradient(circle at 35% 35%, #2E7D5E, #144733);
+  box-shadow:
+    0 4px 10px rgba(20, 71, 51, 0.35),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+
+.wax-seal-antique-gold {
+  background: radial-gradient(circle at 35% 35%, #E5C158, #9A7B20);
+  box-shadow:
+    0 4px 10px rgba(154, 123, 32, 0.35),
+    inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+
+/* Vintage Postage Stamp */
+.postage-stamp {
+  border: 2px dashed rgba(201, 125, 145, 0.5);
+  background: #FFFBF7;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* Floating animation */
+@keyframes romantic-float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1.5deg);
+  }
+}
+
+.animate-float {
+  animation: romantic-float 5s ease-in-out infinite;
+}
+
+/* Pulse soft */
+@keyframes pulse-soft {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.03);
+  }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 3s ease-in-out infinite;
+}
