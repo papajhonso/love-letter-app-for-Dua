@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { CreateLetterPayload, Letter } from '@/types/letter';
-import { Redis } from '@upstash/redis';
+import { Redis as UpstashRedis } from '@upstash/redis';
+import { createClient } from 'redis';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'letters.json');
@@ -44,13 +45,44 @@ const NOUNS = [
   'petal',
 ];
 
-// Helper to get Redis client if configured (Vercel KV or Upstash Redis)
-function getRedisClient(): Redis | null {
+// Node-Redis singleton for Vercel Redis (REDIS_URL / KV_URL)
+let nodeRedisClient: any = null;
+let nodeRedisConnecting: Promise<any> | null = null;
+
+async function getNodeRedis() {
+  const url =
+    process.env.REDIS_URL ||
+    process.env.KV_URL ||
+    process.env.STORAGE_REDIS_URL;
+
+  if (!url) return null;
+  if (nodeRedisClient && nodeRedisClient.isOpen) return nodeRedisClient;
+
+  if (!nodeRedisConnecting) {
+    nodeRedisConnecting = (async () => {
+      try {
+        const client = createClient({ url });
+        client.on('error', (err) => console.error('Node Redis Client Error:', err));
+        await client.connect();
+        nodeRedisClient = client;
+        return client;
+      } catch (e) {
+        console.error('Failed to connect to node-redis:', e);
+        nodeRedisConnecting = null;
+        return null;
+      }
+    })();
+  }
+  return await nodeRedisConnecting;
+}
+
+// Upstash REST client (KV_REST_API_URL / UPSTASH_REDIS_REST_URL)
+function getUpstashClient(): UpstashRedis | null {
   const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
   if (url && token) {
-    return new Redis({ url, token });
+    return new UpstashRedis({ url, token });
   }
   return null;
 }
@@ -86,15 +118,22 @@ function writeLettersToFile(letters: Letter[]): void {
   }
 }
 
-export async function generateUniqueSlug(redis: Redis | null): Promise<string> {
+export async function generateUniqueSlug(): Promise<string> {
+  const nodeRedis = await getNodeRedis();
+  const upstash = getUpstashClient();
+
   for (let attempt = 0; attempt < 50; attempt++) {
     const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
     const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
     const num = Math.floor(Math.random() * 90 + 10);
     const slug = `${adj}-${noun}-${num}`;
+    const key = `letter:${slug.toLowerCase()}`;
 
-    if (redis) {
-      const exists = await redis.exists(`letter:${slug.toLowerCase()}`);
+    if (nodeRedis) {
+      const exists = await nodeRedis.exists(key);
+      if (!exists) return slug;
+    } else if (upstash) {
+      const exists = await upstash.exists(key);
       if (!exists) return slug;
     } else {
       const letters = readLettersFromFile();
@@ -106,8 +145,7 @@ export async function generateUniqueSlug(redis: Redis | null): Promise<string> {
 }
 
 export async function saveLetter(payload: CreateLetterPayload): Promise<Letter> {
-  const redis = getRedisClient();
-  const slug = await generateUniqueSlug(redis);
+  const slug = await generateUniqueSlug();
   const now = new Date().toISOString();
 
   const newLetter: Letter = {
@@ -127,18 +165,33 @@ export async function saveLetter(payload: CreateLetterPayload): Promise<Letter> 
     createdAt: now,
   };
 
-  if (redis) {
+  const key = `letter:${slug.toLowerCase()}`;
+
+  // 1. Try Node Redis (REDIS_URL from Vercel)
+  const nodeRedis = await getNodeRedis();
+  if (nodeRedis) {
     try {
-      // Store in Upstash Redis / Vercel KV
-      await redis.set(`letter:${slug.toLowerCase()}`, newLetter);
-      await redis.sadd('letters:all', slug.toLowerCase());
+      await nodeRedis.set(key, JSON.stringify(newLetter));
+      await nodeRedis.sAdd('letters:all', slug.toLowerCase());
       return newLetter;
     } catch (err) {
-      console.error('Redis save failed, falling back to local file:', err);
+      console.error('Node Redis save failed:', err);
     }
   }
 
-  // Local file fallback
+  // 2. Try Upstash HTTP REST
+  const upstash = getUpstashClient();
+  if (upstash) {
+    try {
+      await upstash.set(key, newLetter);
+      await upstash.sadd('letters:all', slug.toLowerCase());
+      return newLetter;
+    } catch (err) {
+      console.error('Upstash save failed:', err);
+    }
+  }
+
+  // 3. Fallback to local file
   const letters = readLettersFromFile();
   letters.unshift(newLetter);
   writeLettersToFile(letters);
@@ -146,40 +199,75 @@ export async function saveLetter(payload: CreateLetterPayload): Promise<Letter> 
 }
 
 export async function getLetterBySlug(slug: string): Promise<Letter | null> {
-  const redis = getRedisClient();
+  const key = `letter:${slug.toLowerCase()}`;
 
-  if (redis) {
+  // 1. Try Node Redis (REDIS_URL from Vercel)
+  const nodeRedis = await getNodeRedis();
+  if (nodeRedis) {
     try {
-      const found = await redis.get<Letter>(`letter:${slug.toLowerCase()}`);
-      if (found) return found;
+      const data = await nodeRedis.get(key);
+      if (data) return JSON.parse(data) as Letter;
+      return null;
     } catch (err) {
-      console.error('Redis get failed, falling back to local file:', err);
+      console.error('Node Redis get failed:', err);
     }
   }
 
-  // Local file fallback
+  // 2. Try Upstash HTTP REST
+  const upstash = getUpstashClient();
+  if (upstash) {
+    try {
+      const found = await upstash.get<Letter>(key);
+      if (found) return found;
+      return null;
+    } catch (err) {
+      console.error('Upstash get failed:', err);
+    }
+  }
+
+  // 3. Fallback to local file
   const letters = readLettersFromFile();
   const found = letters.find((l) => l.slug.toLowerCase() === slug.toLowerCase());
   return found || null;
 }
 
 export async function markLetterOpened(slug: string): Promise<boolean> {
-  const redis = getRedisClient();
+  const key = `letter:${slug.toLowerCase()}`;
 
-  if (redis) {
+  // 1. Try Node Redis
+  const nodeRedis = await getNodeRedis();
+  if (nodeRedis) {
     try {
-      const letter = await redis.get<Letter>(`letter:${slug.toLowerCase()}`);
-      if (letter && !letter.openedAt) {
-        letter.openedAt = new Date().toISOString();
-        await redis.set(`letter:${slug.toLowerCase()}`, letter);
+      const data = await nodeRedis.get(key);
+      if (data) {
+        const letter = JSON.parse(data) as Letter;
+        if (!letter.openedAt) {
+          letter.openedAt = new Date().toISOString();
+          await nodeRedis.set(key, JSON.stringify(letter));
+        }
       }
       return true;
     } catch (err) {
-      console.error('Redis markOpened failed, falling back to local file:', err);
+      console.error('Node Redis markOpened failed:', err);
     }
   }
 
-  // Local file fallback
+  // 2. Try Upstash HTTP REST
+  const upstash = getUpstashClient();
+  if (upstash) {
+    try {
+      const letter = await upstash.get<Letter>(key);
+      if (letter && !letter.openedAt) {
+        letter.openedAt = new Date().toISOString();
+        await upstash.set(key, letter);
+      }
+      return true;
+    } catch (err) {
+      console.error('Upstash markOpened failed:', err);
+    }
+  }
+
+  // 3. Fallback to local file
   const letters = readLettersFromFile();
   const index = letters.findIndex((l) => l.slug.toLowerCase() === slug.toLowerCase());
   if (index === -1) return false;
