@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { CreateLetterPayload, Letter } from '@/types/letter';
 import { Redis as UpstashRedis } from '@upstash/redis';
+import { createClient } from 'redis';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'letters.json');
@@ -18,12 +19,48 @@ const NOUNS = [
   'promise', 'petal',
 ];
 
-// ✅ Upstash REST client only — stateless HTTP, perfect for Vercel serverless.
-// Removed node-redis (TCP) entirely: it hangs indefinitely in serverless environments.
+// Node-Redis singleton — used when REDIS_URL is set (Vercel Redis marketplace integration).
+// Includes a 5-second connect timeout so it never hangs serverless functions.
+let nodeRedisClient: ReturnType<typeof createClient> | null = null;
+let nodeRedisConnecting: Promise<ReturnType<typeof createClient> | null> | null = null;
+
+async function getNodeRedis() {
+  const url =
+    process.env.REDIS_URL ||
+    process.env.I_LOVE_DUA_REDIS_URL ||
+    process.env.KV_URL ||
+    process.env.STORAGE_REDIS_URL;
+
+  if (!url) return null;
+  if (nodeRedisClient && nodeRedisClient.isOpen) return nodeRedisClient;
+
+  if (!nodeRedisConnecting) {
+    nodeRedisConnecting = (async () => {
+      try {
+        const client = createClient({ url });
+        client.on('error', (err) => console.error('Redis Client Error:', err));
+        await Promise.race([
+          client.connect(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Redis connect timeout')), 5000)
+          ),
+        ]);
+        nodeRedisClient = client as ReturnType<typeof createClient>;
+        return nodeRedisClient;
+      } catch (e) {
+        console.error('Failed to connect to node-redis:', e);
+        nodeRedisConnecting = null;
+        return null;
+      }
+    })();
+  }
+  return nodeRedisConnecting;
+}
+
+// Upstash REST client — used when KV_REST_API_URL + KV_REST_API_TOKEN are set.
 function getUpstashClient(): UpstashRedis | null {
   const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-
   if (url && token) {
     return new UpstashRedis({ url, token });
   }
@@ -62,6 +99,7 @@ function writeLettersToFile(letters: Letter[]): void {
 }
 
 export async function generateUniqueSlug(): Promise<string> {
+  const nodeRedis = await getNodeRedis();
   const upstash = getUpstashClient();
 
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -71,7 +109,10 @@ export async function generateUniqueSlug(): Promise<string> {
     const slug = `${adj}-${noun}-${num}`;
     const key = `letter:${slug.toLowerCase()}`;
 
-    if (upstash) {
+    if (nodeRedis) {
+      const exists = await nodeRedis.exists(key);
+      if (!exists) return slug;
+    } else if (upstash) {
       const exists = await upstash.exists(key);
       if (!exists) return slug;
     } else {
@@ -106,7 +147,19 @@ export async function saveLetter(payload: CreateLetterPayload): Promise<Letter> 
 
   const key = `letter:${slug.toLowerCase()}`;
 
-  // 1. Try Upstash HTTP REST
+  // 1. Try Node Redis (REDIS_URL from Vercel marketplace integration)
+  const nodeRedis = await getNodeRedis();
+  if (nodeRedis) {
+    try {
+      await nodeRedis.set(key, JSON.stringify(newLetter));
+      await nodeRedis.sAdd('letters:all', slug.toLowerCase());
+      return newLetter;
+    } catch (err) {
+      console.error('Node Redis save failed:', err);
+    }
+  }
+
+  // 2. Try Upstash HTTP REST (KV_REST_API_URL + KV_REST_API_TOKEN)
   const upstash = getUpstashClient();
   if (upstash) {
     try {
@@ -118,7 +171,7 @@ export async function saveLetter(payload: CreateLetterPayload): Promise<Letter> 
     }
   }
 
-  // 2. Fallback to local file (dev only)
+  // 3. Fallback to local file (dev only — ephemeral on Vercel)
   const letters = readLettersFromFile();
   letters.unshift(newLetter);
   writeLettersToFile(letters);
@@ -128,7 +181,19 @@ export async function saveLetter(payload: CreateLetterPayload): Promise<Letter> 
 export async function getLetterBySlug(slug: string): Promise<Letter | null> {
   const key = `letter:${slug.toLowerCase()}`;
 
-  // 1. Try Upstash HTTP REST
+  // 1. Try Node Redis
+  const nodeRedis = await getNodeRedis();
+  if (nodeRedis) {
+    try {
+      const data = await nodeRedis.get(key);
+      if (data) return JSON.parse(data) as Letter;
+      return null;
+    } catch (err) {
+      console.error('Node Redis get failed:', err);
+    }
+  }
+
+  // 2. Try Upstash HTTP REST
   const upstash = getUpstashClient();
   if (upstash) {
     try {
@@ -140,7 +205,7 @@ export async function getLetterBySlug(slug: string): Promise<Letter | null> {
     }
   }
 
-  // 2. Fallback to local file (dev only)
+  // 3. Fallback to local file (dev only)
   const letters = readLettersFromFile();
   const found = letters.find((l) => l.slug.toLowerCase() === slug.toLowerCase());
   return found || null;
@@ -149,7 +214,25 @@ export async function getLetterBySlug(slug: string): Promise<Letter | null> {
 export async function markLetterOpened(slug: string): Promise<boolean> {
   const key = `letter:${slug.toLowerCase()}`;
 
-  // 1. Try Upstash HTTP REST
+  // 1. Try Node Redis
+  const nodeRedis = await getNodeRedis();
+  if (nodeRedis) {
+    try {
+      const data = await nodeRedis.get(key);
+      if (data) {
+        const letter = JSON.parse(data) as Letter;
+        if (!letter.openedAt) {
+          letter.openedAt = new Date().toISOString();
+          await nodeRedis.set(key, JSON.stringify(letter));
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('Node Redis markOpened failed:', err);
+    }
+  }
+
+  // 2. Try Upstash HTTP REST
   const upstash = getUpstashClient();
   if (upstash) {
     try {
@@ -164,11 +247,10 @@ export async function markLetterOpened(slug: string): Promise<boolean> {
     }
   }
 
-  // 2. Fallback to local file (dev only)
+  // 3. Fallback to local file (dev only)
   const letters = readLettersFromFile();
   const index = letters.findIndex((l) => l.slug.toLowerCase() === slug.toLowerCase());
   if (index === -1) return false;
-
   if (!letters[index].openedAt) {
     letters[index].openedAt = new Date().toISOString();
     writeLettersToFile(letters);
