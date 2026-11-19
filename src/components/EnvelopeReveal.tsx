@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { Letter } from '@/types/letter';
 import LetterCard, { sealColorMap } from './LetterCard';
-import { Heart, Sparkles, Send, Share2, Copy, Check } from 'lucide-react';
+import LetterA4Modal from './LetterA4Modal';
+import { Heart, Sparkles, Send, Share2, Copy, Check, Download } from 'lucide-react';
 import Link from 'next/link';
 
 interface EnvelopeRevealProps {
@@ -14,6 +15,7 @@ interface EnvelopeRevealProps {
 export default function EnvelopeReveal({ letter }: EnvelopeRevealProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showA4Modal, setShowA4Modal] = useState(false);
   const sealInfo = sealColorMap[letter.sealColor] || sealColorMap.crimson;
 
   const handleOpenEnvelope = () => {
@@ -150,22 +152,33 @@ export default function EnvelopeReveal({ letter }: EnvelopeRevealProps) {
               Letter opened with love
             </span>
 
-            <button
-              onClick={handleCopyLink}
-              className="flex items-center gap-1.5 text-xs font-medium text-[#7A6966] hover:text-[#2B2320] bg-white/70 hover:bg-white px-3 py-1.5 rounded-full border border-[#F8E2EB] shadow-xs transition-colors"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-emerald-700">Link copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Share link</span>
-                </>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowA4Modal(true)}
+                className="flex items-center gap-1.5 text-xs font-medium text-[#8B1E2F] hover:text-[#721523] bg-[#F8E2EB]/80 hover:bg-[#F8E2EB] px-3 py-1.5 rounded-full border border-[#E8A0B8]/40 shadow-xs transition-colors cursor-pointer"
+                title="Download / customize as A4 printable letter"
+              >
+                <Download className="w-3.5 h-3.5 text-[#C97D91]" />
+                <span>Download A4 Letter</span>
+              </button>
+
+              <button
+                onClick={handleCopyLink}
+                className="flex items-center gap-1.5 text-xs font-medium text-[#7A6966] hover:text-[#2B2320] bg-white/70 hover:bg-white px-3 py-1.5 rounded-full border border-[#F8E2EB] shadow-xs transition-colors cursor-pointer"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="text-emerald-700">Link copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Share link</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Render Full Stylized Letter Card */}
@@ -203,6 +216,13 @@ export default function EnvelopeReveal({ letter }: EnvelopeRevealProps) {
               <span>Write a Love Letter 💌</span>
             </Link>
           </div>
+          {/* A4 Download & Customizer Modal */}
+          {showA4Modal && (
+            <LetterA4Modal
+              letter={letter}
+              onClose={() => setShowA4Modal(false)}
+            />
+          )}
         </div>
       )}
     </div>
