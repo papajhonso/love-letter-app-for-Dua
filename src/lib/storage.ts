@@ -2,81 +2,24 @@ import fs from 'fs';
 import path from 'path';
 import { CreateLetterPayload, Letter } from '@/types/letter';
 import { Redis as UpstashRedis } from '@upstash/redis';
-import { createClient } from 'redis';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'letters.json');
 
 const ADJECTIVES = [
-  'sweet',
-  'tender',
-  'gentle',
-  'golden',
-  'velvet',
-  'starlit',
-  'radiant',
-  'cherished',
-  'blooming',
-  'whispering',
-  'endless',
-  'darling',
-  'moonlit',
-  'blushing',
-  'eternal',
-  'warm',
+  'sweet', 'tender', 'gentle', 'golden', 'velvet', 'starlit', 'radiant',
+  'cherished', 'blooming', 'whispering', 'endless', 'darling', 'moonlit',
+  'blushing', 'eternal', 'warm',
 ];
 
 const NOUNS = [
-  'heart',
-  'rose',
-  'whisper',
-  'star',
-  'dove',
-  'sunflower',
-  'melody',
-  'butterfly',
-  'serenade',
-  'spark',
-  'poem',
-  'honeybee',
-  'embrace',
-  'sunset',
-  'promise',
-  'petal',
+  'heart', 'rose', 'whisper', 'star', 'dove', 'sunflower', 'melody',
+  'butterfly', 'serenade', 'spark', 'poem', 'honeybee', 'embrace', 'sunset',
+  'promise', 'petal',
 ];
 
-// Node-Redis singleton for Vercel Redis (REDIS_URL / KV_URL)
-let nodeRedisClient: any = null;
-let nodeRedisConnecting: Promise<any> | null = null;
-
-async function getNodeRedis() {
-  const url =
-    process.env.REDIS_URL ||
-    process.env.KV_URL ||
-    process.env.STORAGE_REDIS_URL;
-
-  if (!url) return null;
-  if (nodeRedisClient && nodeRedisClient.isOpen) return nodeRedisClient;
-
-  if (!nodeRedisConnecting) {
-    nodeRedisConnecting = (async () => {
-      try {
-        const client = createClient({ url });
-        client.on('error', (err) => console.error('Node Redis Client Error:', err));
-        await client.connect();
-        nodeRedisClient = client;
-        return client;
-      } catch (e) {
-        console.error('Failed to connect to node-redis:', e);
-        nodeRedisConnecting = null;
-        return null;
-      }
-    })();
-  }
-  return await nodeRedisConnecting;
-}
-
-// Upstash REST client (KV_REST_API_URL / UPSTASH_REDIS_REST_URL)
+// ✅ Upstash REST client only — stateless HTTP, perfect for Vercel serverless.
+// Removed node-redis (TCP) entirely: it hangs indefinitely in serverless environments.
 function getUpstashClient(): UpstashRedis | null {
   const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -119,7 +62,6 @@ function writeLettersToFile(letters: Letter[]): void {
 }
 
 export async function generateUniqueSlug(): Promise<string> {
-  const nodeRedis = await getNodeRedis();
   const upstash = getUpstashClient();
 
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -129,10 +71,7 @@ export async function generateUniqueSlug(): Promise<string> {
     const slug = `${adj}-${noun}-${num}`;
     const key = `letter:${slug.toLowerCase()}`;
 
-    if (nodeRedis) {
-      const exists = await nodeRedis.exists(key);
-      if (!exists) return slug;
-    } else if (upstash) {
+    if (upstash) {
       const exists = await upstash.exists(key);
       if (!exists) return slug;
     } else {
@@ -167,19 +106,7 @@ export async function saveLetter(payload: CreateLetterPayload): Promise<Letter> 
 
   const key = `letter:${slug.toLowerCase()}`;
 
-  // 1. Try Node Redis (REDIS_URL from Vercel)
-  const nodeRedis = await getNodeRedis();
-  if (nodeRedis) {
-    try {
-      await nodeRedis.set(key, JSON.stringify(newLetter));
-      await nodeRedis.sAdd('letters:all', slug.toLowerCase());
-      return newLetter;
-    } catch (err) {
-      console.error('Node Redis save failed:', err);
-    }
-  }
-
-  // 2. Try Upstash HTTP REST
+  // 1. Try Upstash HTTP REST
   const upstash = getUpstashClient();
   if (upstash) {
     try {
@@ -191,7 +118,7 @@ export async function saveLetter(payload: CreateLetterPayload): Promise<Letter> 
     }
   }
 
-  // 3. Fallback to local file
+  // 2. Fallback to local file (dev only)
   const letters = readLettersFromFile();
   letters.unshift(newLetter);
   writeLettersToFile(letters);
@@ -201,19 +128,7 @@ export async function saveLetter(payload: CreateLetterPayload): Promise<Letter> 
 export async function getLetterBySlug(slug: string): Promise<Letter | null> {
   const key = `letter:${slug.toLowerCase()}`;
 
-  // 1. Try Node Redis (REDIS_URL from Vercel)
-  const nodeRedis = await getNodeRedis();
-  if (nodeRedis) {
-    try {
-      const data = await nodeRedis.get(key);
-      if (data) return JSON.parse(data) as Letter;
-      return null;
-    } catch (err) {
-      console.error('Node Redis get failed:', err);
-    }
-  }
-
-  // 2. Try Upstash HTTP REST
+  // 1. Try Upstash HTTP REST
   const upstash = getUpstashClient();
   if (upstash) {
     try {
@@ -225,7 +140,7 @@ export async function getLetterBySlug(slug: string): Promise<Letter | null> {
     }
   }
 
-  // 3. Fallback to local file
+  // 2. Fallback to local file (dev only)
   const letters = readLettersFromFile();
   const found = letters.find((l) => l.slug.toLowerCase() === slug.toLowerCase());
   return found || null;
@@ -234,25 +149,7 @@ export async function getLetterBySlug(slug: string): Promise<Letter | null> {
 export async function markLetterOpened(slug: string): Promise<boolean> {
   const key = `letter:${slug.toLowerCase()}`;
 
-  // 1. Try Node Redis
-  const nodeRedis = await getNodeRedis();
-  if (nodeRedis) {
-    try {
-      const data = await nodeRedis.get(key);
-      if (data) {
-        const letter = JSON.parse(data) as Letter;
-        if (!letter.openedAt) {
-          letter.openedAt = new Date().toISOString();
-          await nodeRedis.set(key, JSON.stringify(letter));
-        }
-      }
-      return true;
-    } catch (err) {
-      console.error('Node Redis markOpened failed:', err);
-    }
-  }
-
-  // 2. Try Upstash HTTP REST
+  // 1. Try Upstash HTTP REST
   const upstash = getUpstashClient();
   if (upstash) {
     try {
@@ -267,7 +164,7 @@ export async function markLetterOpened(slug: string): Promise<boolean> {
     }
   }
 
-  // 3. Fallback to local file
+  // 2. Fallback to local file (dev only)
   const letters = readLettersFromFile();
   const index = letters.findIndex((l) => l.slug.toLowerCase() === slug.toLowerCase());
   if (index === -1) return false;
